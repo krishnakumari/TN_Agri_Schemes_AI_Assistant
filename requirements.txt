@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+python-multipart
+streamlit
+requests
+langchain
+langchain-openai
+langchain-community
+faiss-cpu
+pypdf
+nemoguardrails
+deepeval
+python-dotenv

@@ -1,0 +1,27 @@
+# 1. Handle English & Tamil greetings
+define user express greeting
+  "hi"
+  "hello"
+  "vanakkam"
+  "வணக்கம்"
+  "காலை வணக்கம்"
+  "good morning"
+  "who are you"
+  "நீங்கள் யார்"
+
+define bot express greeting
+  "வணக்கம்! (Vanakkam!) நான் தமிழ்நாடு அரசின் வேளாண்மைத் திட்டங்களுக்கான AI உதவியாளர். மானியங்கள், தகுதி வரம்புகள், பயிர் காப்பீடு அல்லது சூரிய சக்தி பம்ப் திட்டங்கள் குறித்து தமிழிலோ அல்லது ஆங்கிலத்திலோ கேளுங்கள்!"
+
+define flow greeting
+  user express greeting
+  bot express greeting
+
+# 2. Custom refusal message
+define bot refuse to respond
+  "மன்னிக்கவும், தமிழ்நாடு அரசின் வேளாண்மைத் திட்டங்கள் மற்றும் விவசாய மானியங்கள் தொடர்பான கேள்விகளுக்கு மட்டுமே என்னால் பதிலளிக்க முடியும். (I can only answer questions related to Tamil Nadu Government Agriculture Schemes.)"
+
+# 3. Route all valid English/Tamil questions to the RAG engine
+define flow rag fallback
+  user ...
+  $response = execute call_rag_engine(question=$last_user_message)
+  bot $response
