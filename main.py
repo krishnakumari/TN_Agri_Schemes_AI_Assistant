@@ -1,5 +1,6 @@
 import os
 import shutil
+from typing import List
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from pydantic import BaseModel, Field
 from nemoguardrails import RailsConfig, LLMRails
@@ -9,7 +10,7 @@ from rag_engine import ingest_pdf, FAISS_INDEX_PATH
 app = FastAPI(
     title="Tamil Nadu Agriculture Schemes Bilingual RAG API",
     description="English & Tamil RAG API powered by LangChain, FAISS, OpenAI, and NeMo Guardrails",
-    version="2.0.0"
+    version="2.1.0"
 )
 
 # Initialize NeMo Guardrails once at server startup
@@ -50,36 +51,63 @@ def health_check():
 
 
 @app.post("/upload")
-async def upload_pdf(file: UploadFile = File(...)):
+async def upload_pdfs(files: List[UploadFile] = File(...)):
     """
-    Receives a Tamil Nadu agriculture scheme PDF from the UI,
-    saves it locally, and adds its embeddings to FAISS.
+    Receives one or multiple Tamil Nadu agriculture scheme PDFs from the UI,
+    saves each locally, and merges all embeddings into the FAISS vector store.
     """
-    if not file.filename or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided.")
 
-    safe_filename = os.path.basename(file.filename)
-    file_path = os.path.join(DATA_DIR, safe_filename)
+    processed_files = []
+    failed_files = []
+    total_chunks_added = 0
 
-    try:
-        # Stream uploaded file to disk
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+    for file in files:
+        if not file.filename or not file.filename.lower().endswith(".pdf"):
+            failed_files.append({
+                "filename": file.filename or "Unknown",
+                "error": "Only PDF files are supported."
+            })
+            await file.close()
+            continue
 
-        # Process PDF and update FAISS vector store
-        chunks_added = ingest_pdf(file_path)
+        safe_filename = os.path.basename(file.filename)
+        file_path = os.path.join(DATA_DIR, safe_filename)
 
-        return {
-            "filename": safe_filename,
-            "chunks_added": chunks_added,
-            "message": f"Successfully indexed '{safe_filename}' ({chunks_added} chunks added to FAISS)."
-        }
-    except ValueError as ve:
-        raise HTTPException(status_code=400, detail=str(ve))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to process PDF: {str(e)}")
-    finally:
-        await file.close()
+        try:
+            # Save uploaded file to disk
+            with open(file_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+
+            # Process PDF and merge into FAISS vector store
+            chunks_added = ingest_pdf(file_path)
+            total_chunks_added += chunks_added
+            processed_files.append({
+                "filename": safe_filename,
+                "chunks_added": chunks_added
+            })
+        except Exception as e:
+            failed_files.append({
+                "filename": safe_filename,
+                "error": str(e)
+            })
+        finally:
+            await file.close()
+
+    if not processed_files and failed_files:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to process uploaded files: {failed_files}"
+        )
+
+    return {
+        "total_files_indexed": len(processed_files),
+        "total_chunks_added": total_chunks_added,
+        "processed_files": processed_files,
+        "failed_files": failed_files,
+        "message": f"Successfully indexed {len(processed_files)} PDF(s) ({total_chunks_added} total chunks added to FAISS)."
+    }
 
 
 @app.post("/chat", response_model=ChatResponse)

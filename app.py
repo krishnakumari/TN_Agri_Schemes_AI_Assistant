@@ -28,7 +28,7 @@ if "messages" not in st.session_state:
 if "pending_prompt" not in st.session_state:
     st.session_state.pending_prompt = None
 
-# --- SIDEBAR: Language, Status & PDF Upload ---
+# --- SIDEBAR: Language, Status & Multi-PDF Upload ---
 with st.sidebar:
     st.header("🌐 Response Language / மொழி")
     selected_lang = st.selectbox(
@@ -58,7 +58,7 @@ with st.sidebar:
                         for pdf in pdfs:
                             st.write(f"• `{pdf}`")
             else:
-                st.warning("FAISS Vector Store: Empty (Upload a PDF)")
+                st.warning("FAISS Vector Store: Empty (Upload PDFs)")
         else:
             st.error("Backend API: Error")
     except requests.exceptions.ConnectionError:
@@ -66,25 +66,41 @@ with st.sidebar:
 
     st.divider()
 
-    # PDF Uploader
-    uploaded_file = st.file_uploader(
-        "Upload TN Agriculture Scheme PDF",
+    # Multi-PDF Uploader
+    uploaded_files = st.file_uploader(
+        "Upload TN Agriculture Scheme PDFs",
         type=["pdf"],
-        help="Upload official Tamil Nadu agriculture scheme documents to index them into FAISS."
+        accept_multiple_files=True,
+        help="Select one or multiple official Tamil Nadu agriculture scheme PDFs to index into FAISS."
     )
 
-    if uploaded_file is not None:
-        if st.button("📥 Process & Index PDF", width="stretch"):
-            with st.spinner(f"Chunking & embedding '{uploaded_file.name}' into FAISS..."):
+    if uploaded_files:
+        st.caption(f"{len(uploaded_files)} file(s) selected")
+        if st.button("📥 Process & Index All PDFs", width="stretch"):
+            with st.spinner(f"Chunking & embedding {len(uploaded_files)} PDF(s) into FAISS..."):
                 try:
-                    files = {
-                        "file": (uploaded_file.name, uploaded_file.getvalue(), "application/pdf")
-                    }
-                    response = requests.post(f"{API_BASE_URL}/upload", files=files, timeout=120)
+                    # Build multipart list of ("files", (filename, bytes, mime)) tuples
+                    files_payload = [
+                        ("files", (f.name, f.getvalue(), "application/pdf"))
+                        for f in uploaded_files
+                    ]
+                    response = requests.post(
+                        f"{API_BASE_URL}/upload",
+                        files=files_payload,
+                        timeout=300
+                    )
 
                     if response.status_code == 200:
                         data = response.json()
                         st.success(data["message"])
+
+                        # Show per-file chunk breakdown
+                        for item in data.get("processed_files", []):
+                            st.write(f"✅ `{item['filename']}` — {item['chunks_added']} chunks")
+
+                        # Show any files that failed (e.g., scanned image-only PDFs)
+                        for err in data.get("failed_files", []):
+                            st.warning(f"⚠️ `{err['filename']}`: {err['error']}")
                     else:
                         error_detail = response.json().get("detail", "Upload failed.")
                         st.error(f"Error: {error_detail}")
@@ -124,7 +140,6 @@ chat_input_prompt = st.chat_input("கேள்வியை தமிழில�
 user_prompt = chat_input_prompt or st.session_state.pending_prompt
 
 if user_prompt:
-    # Clear pending button prompt once consumed
     st.session_state.pending_prompt = None
 
     # 1. Display user message immediately
